@@ -1,0 +1,31 @@
+{
+	"schemaVersion": 1,
+	"id": "deathcount",
+	"version": "${version}",
+	"name": "Death Count",
+	"description": "Counts everyone's death... obviously.",
+	"authors": [
+		"Searchies"
+	],
+	"contact": {
+		"homepage": "https://searchies.net/",
+		"sources": "https://github.com/Searchies/DeathCount"
+	},
+	"license": "MIT",
+	"icon": "assets/deathcount/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"net.searchies.deathcount.DeathCount"
+		]
+	},
+	"mixins": [
+		"deathcount.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.18.4",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
