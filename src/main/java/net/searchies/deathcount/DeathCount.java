@@ -25,11 +25,11 @@ public class DeathCount implements ModInitializer {
 
 		// Gets called if any Entity dies
 		ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
-
 			// Checking if a Player died
 			if (entity instanceof ServerPlayerEntity player) {
 				int currentDeaths = player.getStatHandler().getStat(Stats.CUSTOM.getOrCreateStat(Stats.DEATHS));
-				DeathLeaderboard.update(player.getName().getString(), currentDeaths);
+				String playerName = Deaths.getPlayerName(player.getCommandSource(), null);
+				DeathLeaderboard.update(playerName, currentDeaths);
 			}
 		});
 	}

@@ -1,5 +1,6 @@
 package net.searchies.deathcount.command;
 
+import com.mojang.authlib.GameProfile;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -48,8 +49,7 @@ public class Deaths {
     private static int runSelf(CommandContext<ServerCommandSource> context) {
         ServerCommandSource source = context.getSource();
         try {
-            ServerPlayerEntity player = source.getPlayerOrThrow();
-            sendDeaths(player.getName().getString(), source);
+            sendDeaths(source, null);
 
             return 1;
         } catch (Exception e) {
@@ -63,7 +63,7 @@ public class Deaths {
         ServerCommandSource source = context.getSource();
         try {
             String playerName = StringArgumentType.getString(context, "target");
-            sendDeaths(playerName, source);
+            sendDeaths(source, playerName);
 
             return 1;
         } catch (Exception e) {
@@ -73,19 +73,26 @@ public class Deaths {
     }
 
     // Sends Deaths to the chat
-    private static void sendDeaths(String playerName, ServerCommandSource source) {
+    private static void sendDeaths(ServerCommandSource source, String tempName) {
         try {
-            ArrayList<Integer> deathInfo = DeathLeaderboard.getPlayerDeaths(playerName);
-            int deaths = deathInfo.get(0);
-            int rank = deathInfo.get(1);
-            if (deaths == 0) {
-                // They have no "Deaths" in their stat file, so they have 0 Deaths
-                source.sendFeedback(() -> Text.literal("Woah... " + playerName + " might be an Immortal Demon."), false);
-            } else {
-                source.sendFeedback(() -> Text.literal(playerName + " has died " + deaths + " times. Rank: #" + rank), false);
+            String playerName = getPlayerName(source, tempName);
+            try {
+                ArrayList<Integer> deathInfo = DeathLeaderboard.getPlayerDeaths(playerName);
+                int deaths = deathInfo.get(0);
+                int rank = deathInfo.get(1);
+                if (deaths == 0) {
+                    // They have no "Deaths" in their stat file, so they have 0 Deaths
+                    source.sendFeedback(() -> Text.literal("Woah... " + playerName + " might be an Immortal Demon."), false);
+                } else {
+                    source.sendFeedback(() -> Text.literal(playerName + " has died " + deaths + " times. Rank: #" + rank), false);
+                }
+            } catch (Exception e) {
+                source.sendError(Text.literal(playerName + " does not exist?"));
             }
         } catch (Exception e) {
-            source.sendError(Text.literal(playerName + " does not exist?"));
+            if (tempName != null) {
+                source.sendError(Text.literal(tempName + " does not exist?"));
+            }
         }
     }
 
@@ -118,7 +125,7 @@ public class Deaths {
             int rank = entry.getValue().get(1);
 
             // Check if this entry belongs to the player running the command
-            boolean isSelf = (player != null && name.equals(player.getName().getString()));
+            boolean isSelf = (player != null && name.equals(getPlayerName(source, null)));
             if (isSelf) playerFound = true;
 
             String prefix = isSelf ? "-> " : "";
@@ -133,10 +140,10 @@ public class Deaths {
 
         // Send player's rank who ran the command if they aren't on the Leaderboard
         if (player != null && !playerFound) {
-            ArrayList<Integer> deathInfo = DeathLeaderboard.getPlayerDeaths(player.getName().getString());
+            String name = getPlayerName(source, null);
+            ArrayList<Integer> deathInfo = DeathLeaderboard.getPlayerDeaths(name);
 
             if (deathInfo != null && !deathInfo.isEmpty()) {
-                String name = player.getName().getString();
                 int deaths = deathInfo.get(0);
                 int rank = deathInfo.get(1);
 
@@ -167,5 +174,14 @@ public class Deaths {
 
         source.sendFeedback(() -> Text.literal("Reload complete"), true);
         return 1;
+    }
+
+    // Get Player Name from UUID to fix conflicts with HarpySMP nickname mod
+    // if playerName is null, it's getting someone else's death
+    public static String getPlayerName(ServerCommandSource source, String playerName) {
+        if (playerName == null) {
+            return source.getPlayer().getName().getString();
+        }
+        return source.getServer().getUserCache().getByUuid(source.getPlayer().getUuid()).map(GameProfile::getName).get();
     }
 }
