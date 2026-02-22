@@ -168,7 +168,7 @@ public class Deaths {
 
         source.sendFeedback(() -> Text.literal("Reloading stats/configs from files..."), true);
 
-        // Reload Config AND Leaderboard
+        // Reload Config and Leaderboard
         DeathConfig.load();
         DeathLeaderboard.reloadLeaderboard(source.getServer());
 
@@ -179,8 +179,8 @@ public class Deaths {
     // Get Player Name from UUID to fix conflicts with HarpySMP nickname mod
     // if playerName is null, it's getting someone else's death
     public static String getPlayerName(ServerCommandSource source, String playerName) {
-        if (playerName == null) {
-            return source.getPlayer().getName().getString();
+        if (playerName != null) {
+            return source.getServer().getUserCache().findByName(playerName).map(GameProfile::getName).get();
         }
         return source.getServer().getUserCache().getByUuid(source.getPlayer().getUuid()).map(GameProfile::getName).get();
     }
