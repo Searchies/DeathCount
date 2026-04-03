@@ -180,8 +180,8 @@ public class Deaths {
     // if playerName is null, it's getting someone else's death
     public static String getPlayerName(ServerCommandSource source, String playerName) {
         if (playerName != null) {
-            return source.getServer().getUserCache().findByName(playerName).map(GameProfile::getName).get();
+            return source.getServer().getUserCache().findByName(playerName).map(GameProfile::getName).orElseGet(() -> {return null;});
         }
-        return source.getServer().getUserCache().getByUuid(source.getPlayer().getUuid()).map(GameProfile::getName).get();
+        return source.getServer().getUserCache().getByUuid(source.getPlayer().getUuid()).map(GameProfile::getName).orElseGet(() -> {return null;});
     }
 }
