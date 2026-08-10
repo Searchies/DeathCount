@@ -1,0 +1,184 @@
+package net.searchies.deathcount.command;
+
+import com.mojang.authlib.GameProfile;
+import com.mojang.authlib.GameProfileRepository;
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
+import net.minecraft.client.RunArgs;
+import net.minecraft.command.CommandRegistryAccess;
+import net.minecraft.command.CommandSource;
+import net.minecraft.command.permission.Permission;
+import net.minecraft.command.permission.PermissionLevel;
+import net.minecraft.command.permission.PermissionPredicate;
+import net.minecraft.server.PlayerConfigEntry;
+import net.minecraft.server.command.CommandManager;
+import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
+import net.minecraft.util.UserCache;
+import net.searchies.deathcount.util.*;
+
+import java.util.ArrayList;
+import java.util.Map;
+
+public class Deaths {
+
+    public static void register(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess registryAccess, CommandManager.RegistrationEnvironment environment) {
+        var root = CommandManager.literal("deaths");
+
+        // /deaths
+        root.executes(Deaths::runSelf);
+
+        // /deaths list
+        root.then(CommandManager.literal("list")
+                .executes(Deaths::runLeaderboard));
+
+        // /deaths reload
+        root.then(CommandManager.literal("reload")
+                .executes(Deaths::runReload));
+
+        // /deaths <player>
+        root.then(CommandManager.argument("target", StringArgumentType.word())
+                .suggests((context, builder) -> CommandSource.suggestMatching(
+                        context.getSource().getServer().getPlayerNames(), builder))
+                .executes(Deaths::runPlayer));
+
+        dispatcher.register(root);
+    }
+
+    private static int runSelf(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        try {
+            sendDeaths(source, null);
+
+            return 1;
+        } catch (Exception e) {
+            source.sendError(Text.literal("Only a player can check their own deaths."));
+            return 0;
+        }
+    }
+
+    private static int runPlayer(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        try {
+            String playerName = StringArgumentType.getString(context, "target");
+            sendDeaths(source, playerName);
+
+            return 1;
+        } catch (Exception e) {
+            source.sendError(Text.literal("Only a player can check their own deaths."));
+            return 0;
+        }
+    }
+
+    private static void sendDeaths(ServerCommandSource source, String tempName) {
+        try {
+            String playerName = getPlayerName(source, tempName);
+            try {
+                ArrayList<Integer> deathInfo = DeathLeaderboard.getPlayerDeaths(playerName);
+                int deaths = deathInfo.get(0);
+                int rank = deathInfo.get(1);
+                if (deaths == 0) {
+                    // They have no "Deaths" in their stat file, so they have 0 Deaths
+                    source.sendFeedback(() -> Text.literal("Woah... " + playerName + " might be an Immortal Demon."), false);
+                } else {
+                    source.sendFeedback(() -> Text.literal(playerName + " has died " + deaths + " times. Rank: #" + rank), false);
+                }
+            } catch (Exception e) {
+                source.sendError(Text.literal(playerName + " does not exist?"));
+            }
+        } catch (Exception e) {
+            if (tempName != null) {
+                source.sendError(Text.literal(tempName + " does not exist?"));
+            }
+        }
+    }
+
+    private static int runLeaderboard(CommandContext<ServerCommandSource> context) {
+        int limit = DeathConfig.INSTANCE.leaderboardSize;
+        var topPlayers = DeathLeaderboard.getTopDeaths(limit);
+        ServerCommandSource source = context.getSource();
+
+        source.sendFeedback(() -> Text.literal(" "), false);
+        source.sendFeedback(() -> Text.literal("-- Death Leaderboard --").formatted(Formatting.WHITE), false);
+
+        if (topPlayers.isEmpty()) {
+            source.sendFeedback(() -> Text.literal("Everyone is immortal... what the freak."), false);
+            return 1;
+        }
+
+        ServerPlayerEntity player = null;
+        try {
+            player = source.getPlayerOrThrow();
+        } catch (Exception e) {}
+
+        // Track if the player was found in the Leaderboard
+        boolean playerFound = false;
+
+        for (Map.Entry<String, ArrayList<Integer>> entry : topPlayers.entrySet()) {
+            String name = entry.getKey();
+            int deaths = entry.getValue().get(0);
+            int rank = entry.getValue().get(1);
+
+            boolean isSelf = (player != null && name.equals(getPlayerName(source, null)));
+            if (isSelf) playerFound = true;
+
+            String prefix = isSelf ? "-> " : "";
+            String line = String.format("%s#%d: %s - %d", prefix, rank, name, deaths);
+
+            Formatting color = (rank <= 3) ? Formatting.RED : Formatting.WHITE;
+
+            source.sendFeedback(() -> Text.literal(line).formatted(color), false);
+        }
+
+        if (player != null && !playerFound) {
+            String name = getPlayerName(source, null);
+            ArrayList<Integer> deathInfo = DeathLeaderboard.getPlayerDeaths(name);
+
+            if (deathInfo != null && !deathInfo.isEmpty()) {
+                int deaths = deathInfo.get(0);
+                int rank = deathInfo.get(1);
+
+                // "-> #15: Search - 12"
+                String line = String.format("-> #%d: %s - %d", rank, name, deaths);
+                source.sendFeedback(() -> Text.literal(line).formatted(Formatting.WHITE), false);
+            }
+        }
+
+        return 1;
+    }
+
+    // Useful if you manually edited a stat file and want the mod to notice without restarting
+    private static int runReload(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+
+        // Check for OP Permission Level
+
+        if (!source.getPermissions().hasPermission(new Permission.Level(PermissionLevel.fromLevel(DeathConfig.INSTANCE.operatorLevel)))) {
+            source.sendError(Text.literal("You do not have permission to reload the config!"));
+            return 0;
+        }
+
+
+        source.sendFeedback(() -> Text.literal("Reloading stats/configs from files..."), true);
+
+        // Reload Config and Leaderboard
+        DeathConfig.load();
+        DeathLeaderboard.reloadLeaderboard(source.getServer());
+
+        source.sendFeedback(() -> Text.literal("Reload complete"), true);
+        return 1;
+    }
+
+    // Get Player Name from UUID to fix conflicts with nickname mod
+    // if playerName is null, it's getting someone else's death
+    public static String getPlayerName(ServerCommandSource source, String playerName) {
+        if (playerName != null) {
+            return source.getServer().getApiServices().nameToIdCache().findByName(playerName).map(PlayerConfigEntry::name).orElse(null);
+        }
+
+        return source.getServer().getApiServices().nameToIdCache().getByUuid(source.getPlayer().getUuid()).map(PlayerConfigEntry::name).orElse(null);
+    }
+}
